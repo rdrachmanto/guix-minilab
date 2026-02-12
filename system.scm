@@ -10,10 +10,11 @@
 ;; Indicate which modules to import to access the variables
 ;; used in this configuration.
 (use-modules (gnu)
+	     (gnu system accounts)
 	     (nongnu packages linux)
 	     (nongnu system linux-initrd)
 	     (rosenthal services networking))
-(use-service-modules cups desktop networking ssh xorg)
+(use-service-modules cups desktop networking ssh xorg containers)
 
 (operating-system
   (kernel linux)
@@ -31,26 +32,46 @@
                   (comment "Main")
                   (group "users")
                   (home-directory "/home/main")
-                  (supplementary-groups '("wheel" "netdev" "audio" "video")))
+                  (supplementary-groups '("cgroup" "wheel" "netdev" "audio" "video")))
                 %base-user-accounts))
 
   ;; Below is the list of system services.  To search for available
   ;; services, run 'guix system search KEYWORD' in a terminal.
   (services
-   (append (list
+    (cons* (service elogind-service-type)
+	   (service openssh-service-type)
+	   (service network-manager-service-type)
+	   (service wpa-supplicant-service-type)
+	   (service ntp-service-type)
+	   (service tailscale-service-type)
 
-                 ;; To configure OpenSSH, pass an 'openssh-configuration'
-                 ;; record as a second argument to 'service' below.
-                 (service elogind-service-type)
-		 (service openssh-service-type)
-                 (service network-manager-service-type)
-                 (service wpa-supplicant-service-type)
-                 (service ntp-service-type)
-		 (service tailscale-service-type))
+	   (service iptables-service-type)
 
-           ;; This is the default list of services we
-           ;; are appending to.
-           %base-services))
+	   (service rootless-podman-service-type
+                   (rootless-podman-configuration
+                     (subgids
+                      (list (subid-range (name "main"))))
+                     (subuids
+                      (list (subid-range (name "main"))))))
+           
+	   (service oci-service-type
+	     (oci-configuration
+	       (runtime 'podman)))
+
+	   (simple-service 'atlas-oci-service
+			   oci-service-type
+			   (oci-extension
+			     (containers
+			       (list
+				 (oci-container-configuration
+				   (image "nicolargo/glances:latest")
+				   (ports '(("61208" . "61208")))
+				   (auto-start? #t)
+				   (respawn? #t)
+				   (environment
+				     (list '("GLANCES_OPT" . "-w"))))))))
+	%base-services))
+
   (bootloader (bootloader-configuration
                 (bootloader grub-efi-bootloader)
                 (targets (list "/boot/efi"))
